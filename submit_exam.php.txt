@@ -1,0 +1,130 @@
+<?php
+session_start();
+require_once 'db.php';
+
+// Security check: Ensure student is logged in
+if (!isset($_SESSION['student_id'])) {
+    header("Location: login.php");
+    exit();
+}
+
+$student_id = $_SESSION['student_id'];
+$student_name = $_SESSION['student_name'];
+$reg_number = $_SESSION['reg_number'];
+
+$score = 0;
+$total_questions = 0;
+$percentage = 0;
+$status = "FAILED";
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    try {
+        // Fetch all questions from the database
+        $stmt = $pdo->query("SELECT * FROM questions");
+        $questions = $stmt->fetchAll();
+        $total_questions = count($questions);
+
+        foreach ($questions as $q) {
+            $q_id = $q['id'];
+            
+            // Check whichever column name exists in your database table
+            $correct_ans = "";
+            if (isset($q['correct_answer'])) {
+                $correct_ans = trim(strtoupper($q['correct_answer']));
+            } elseif (isset($q['correct_option'])) {
+                $correct_ans = trim(strtoupper($q['correct_option']));
+            }
+
+            // Check if the student answered this question correctly
+            if (isset($_POST["question_" . $q_id])) {
+                $student_ans = trim(strtoupper($_POST["question_" . $q_id]));
+                
+                if ($student_ans === $correct_ans) {
+                    $score++;
+                }
+            }
+        }
+
+        // Calculate percentage securely
+        if ($total_questions > 0) {
+            $percentage = ($score / $total_questions) * 100;
+        }
+        
+        // Pass/Fail evaluation threshold (50%)
+        if ($percentage >= 50) {
+            $status = "PASSED";
+        } else {
+            $status = "FAILED";
+        }
+
+        // Attempt to save result into database safely (won't crash the page if table is missing)
+        try {
+            $stmt_res = $pdo->prepare("INSERT INTO results (student_id, score, total, status) VALUES (?, ?, ?, ?)");
+            $stmt_res->execute([$student_id, $score, $total_questions, $status]);
+        } catch (Exception $ex) {
+            // Silently pass if results table isn't created yet so calculation still shows
+        }
+
+    } catch (PDOException $e) {
+        $score = 0;
+        $total_questions = 0;
+        $percentage = 0;
+        $status = "FAILED";
+    }
+} else {
+    header("Location: dashboard.php");
+    exit();
+}
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Exam Result Slip - C.A.A.S.S Bukuru</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .slip-card { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 450px; text-align: center; border-top: 5px solid #007bff; }
+        h3 { margin: 0; color: #333; font-size: 20px; }
+        .subtitle { font-size: 13px; color: #666; margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+        .info { text-align: left; background: #fdfdfd; padding: 12px; border: 1px solid #eee; border-radius: 4px; margin-bottom: 15px; font-size: 15px; color: #333; }
+        .info strong { color: #2e7d32; }
+        .score-box { font-size: 20px; font-weight: bold; color: #333; margin: 20px 0; background: #e8f5e9; padding: 15px; border-radius: 6px; }
+        .status { font-weight: bold; padding: 10px 20px; border-radius: 4px; display: inline-block; margin-bottom: 20px; font-size: 16px; letter-spacing: 1px; }
+        .passed { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .failed { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .btn-row { display: flex; gap: 10px; justify-content: center; }
+        .btn { padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px; border: none; cursor: pointer; }
+        .btn-print { background: #007bff; color: white; }
+        .btn-print:hover { background: #0056b3; }
+        .btn-logout { background: #dc3545; color: white; }
+        .btn-logout:hover { background: #c82333; }
+    </style>
+</head>
+<body>
+    <div class="slip-card">
+        <h3>Christ Anglican Academy Secondary School</h3>
+        <div class="subtitle">JSS1 Entrance Screening Result Slip</div>
+        
+        <div class="info">
+            Candidate Name: <strong><?php echo htmlspecialchars($student_name); ?></strong><br>
+            Registration No: <span style="font-family: monospace; font-weight: bold;"><?php echo htmlspecialchars($reg_number); ?></span>
+        </div>
+
+        <div class="score-box">
+            Score: <?php echo $score; ?> / <?php echo $total_questions; ?> (<?php echo number_format((float)$percentage, 1); ?>%)
+        </div>
+
+        <div>
+            <span class="status <?php echo ($status == 'PASSED') ? 'passed' : 'failed'; ?>">
+                STATUS: <?php echo $status; ?>
+            </span>
+        </div>
+
+        <div class="btn-row">
+            <button onclick="window.print();" class="btn btn-print">Print Slip</button>
+            <a href="logout.php" class="btn btn-logout">Log Out</a>
+        </div>
+    </div>
+</body>
+</html>
